@@ -1,6 +1,7 @@
 import boto3
 import csv
 from io import StringIO
+from decimal import Decimal
 
 # DynamoDB client configuration
 dynamodb = boto3.resource('dynamodb', region_name='eu-central-1')
@@ -9,9 +10,6 @@ table = dynamodb.Table('Inventory')
 # Lambda function triggered by S3 event
 def insert_items_from_csv(event, context):
     try:
-        # Dictionary to store last stock level for each item
-        last_stock_levels = {}
-
         # Iterate over records in S3 event
         for record in event['Records']:
             # Extract information from S3 event record
@@ -21,11 +19,11 @@ def insert_items_from_csv(event, context):
             # Download CSV file from S3
             s3_client = boto3.client('s3')
             response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
-            lines = response['Body'].read().decode('utf-8').split('\n')
+            csv_body = response['Body'].read().decode('utf-8')
 
-            # Read CSV file and update stock levels for each item
-            csv_reader = csv.DictReader(lines, delimiter=';')
-            for row in csv_reader:
+            # Read CSV file
+            csv_data = csv.DictReader(StringIO(csv_body), delimiter=';')
+            for row in csv_data:
                 try:
                     timestamp = row['Timestamp']
                     warehouse_name = row['WarehouseName']
@@ -33,16 +31,21 @@ def insert_items_from_csv(event, context):
                     item_name = row['ItemName']
                     stock_level_change = int(row['StockLevelChange'])
 
-                    # Get the last stock level for the item
-                    last_stock_level = last_stock_levels.get(item_id, 0)
+                    # Check if the item exists in the DynamoDB table
+                    response = table.get_item(
+                        Key={'ItemId': item_id, 'WarehouseName': warehouse_name}
+                    )
+                    item_in_db = response.get('Item')
 
-                    # Calculate the new stock level
-                    new_stock_level = stock_level_change + last_stock_level
+                    if item_in_db:
+                        # Item exists in DynamoDB, update the stock level
+                        current_stock_level = int(item_in_db['StockLevelChange'])
+                        new_stock_level = current_stock_level + stock_level_change
+                    else:
+                        # Item doesn't exist in DynamoDB, set the initial stock level
+                        new_stock_level = stock_level_change
 
-                    # Update the last stock level for the item
-                    last_stock_levels[item_id] = new_stock_level
-
-                    # Item object for insertion into DynamoDB
+                    # Put item into DynamoDB
                     item = {
                         'Timestamp': timestamp,
                         'WarehouseName': warehouse_name,
@@ -50,13 +53,12 @@ def insert_items_from_csv(event, context):
                         'ItemName': item_name,
                         'StockLevelChange': new_stock_level
                     }
-
-                    # Insert item into DynamoDB
                     table.put_item(Item=item)
-                    print(f"Successfully inserted: {item}")
+                    print(f"Successfully inserted/updated: {item}")
+
                 except Exception as e:
                     print(f"Failed to process row: {str(e)}")
 
-            print("CSV item insertion completed.")
+            print("CSV item insertion/update completed.")
     except Exception as e:
         print(f"Failed to process CSV file: {str(e)}")
