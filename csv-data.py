@@ -1,49 +1,62 @@
 import boto3
 import csv
-import io
-from datetime import datetime
+from io import StringIO
 
-# Configurações do cliente DynamoDB
+# DynamoDB client configuration
 dynamodb = boto3.resource('dynamodb', region_name='eu-central-1')
 table = dynamodb.Table('Inventory')
 
-# Esta função é acionada quando a Lambda é invocada
+# Lambda function triggered by S3 event
 def insert_items_from_csv(event, context):
     try:
-        # Caminho do arquivo CSV no S3
-        s3_bucket = "unique-name-for-inventory-bucket-example"
-        s3_key = "inventory_files/2024/04/29/202404291604_inventory.csv"
+        # Dictionary to store last stock level for each item
+        last_stock_levels = {}
 
-        # Baixar o arquivo CSV do S3
-        s3_client = boto3.client('s3')
-        response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
-        lines = response['Body'].read().decode('utf-8').split('\n')
+        # Iterate over records in S3 event
+        for record in event['Records']:
+            # Extract information from S3 event record
+            s3_bucket = record['s3']['bucket']['name']
+            s3_key = record['s3']['object']['key']
 
-        # Ler o arquivo CSV e inserir os dados no DynamoDB
-        csv_reader = csv.DictReader(lines, delimiter=';')
-        for row in csv_reader:
-            try:
-                timestamp = row['Timestamp']
-                warehouse_name = row['WarehouseName']
-                item_id = row['ItemId']
-                item_name = row['ItemName']
-                stock_level_change = int(row['StockLevelChange'])
+            # Download CSV file from S3
+            s3_client = boto3.client('s3')
+            response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+            lines = response['Body'].read().decode('utf-8').split('\n')
 
-                # Objeto de item para inserção no DynamoDB
-                item = {
-                    'Timestamp': timestamp,
-                    'WarehouseName': warehouse_name,
-                    'ItemId': item_id,
-                    'ItemName': item_name,
-                    'StockLevelChange': stock_level_change
-                }
+            # Read CSV file and update stock levels for each item
+            csv_reader = csv.DictReader(lines, delimiter=';')
+            for row in csv_reader:
+                try:
+                    timestamp = row['Timestamp']
+                    warehouse_name = row['WarehouseName']
+                    item_id = row['ItemId']
+                    item_name = row['ItemName']
+                    stock_level_change = int(row['StockLevelChange'])
 
-                # Inserir o item no DynamoDB
-                table.put_item(Item=item)
-                print(f"Inserido com sucesso: {item}")
-            except Exception as e:
-                print(f"Falha ao inserir: {str(e)}")
+                    # Get the last stock level for the item
+                    last_stock_level = last_stock_levels.get(item_id, 0)
 
-        print("Inserção de itens do CSV concluída.")
+                    # Calculate the new stock level
+                    new_stock_level = stock_level_change + last_stock_level
+
+                    # Update the last stock level for the item
+                    last_stock_levels[item_id] = new_stock_level
+
+                    # Item object for insertion into DynamoDB
+                    item = {
+                        'Timestamp': timestamp,
+                        'WarehouseName': warehouse_name,
+                        'ItemId': item_id,
+                        'ItemName': item_name,
+                        'StockLevelChange': new_stock_level
+                    }
+
+                    # Insert item into DynamoDB
+                    table.put_item(Item=item)
+                    print(f"Successfully inserted: {item}")
+                except Exception as e:
+                    print(f"Failed to process row: {str(e)}")
+
+            print("CSV item insertion completed.")
     except Exception as e:
-        print(f"Falha ao processar o arquivo CSV: {str(e)}")
+        print(f"Failed to process CSV file: {str(e)}")

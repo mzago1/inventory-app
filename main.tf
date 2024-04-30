@@ -205,7 +205,7 @@ resource "aws_s3_bucket_notification" "inventory_bucket_notification" {
 resource "aws_lambda_function" "restock_handler" {
   function_name = "restock-handler"
   filename      = "lambda-restock.zip"
-  handler       = "lambda.handler"
+  handler       = "lambda-restock.lambda_handler"
   runtime       = "python3.8"
   role          = aws_iam_role.lambda_execution_role.arn
 
@@ -225,16 +225,6 @@ resource "aws_lambda_permission" "restock_bucket_permission" {
   
   # Define as condições para acionar a função Lambda quando um novo objeto é criado no bucket S3
   source_arn = aws_s3_bucket.inventory_files.arn
-}
-
-resource "aws_s3_bucket_notification" "restock_bucket_notification" {
-  bucket = aws_s3_bucket.inventory_files.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.restock_handler.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "restock_thresholds/"
-  }
 }
 
 # Define a função Lambda para inserir dados no DynamoDB a partir do arquivo CSV
@@ -264,13 +254,14 @@ resource "aws_lambda_permission" "csv_data_bucket_permission" {
   source_arn = aws_s3_bucket.inventory_files.arn
 }
 
+# Configura o evento S3 para acionar a função Lambda quando um novo arquivo CSV é criado
 resource "aws_s3_bucket_notification" "csv_data_bucket_notification" {
   bucket = aws_s3_bucket.inventory_files.id
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.csv_data_handler.arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "csv/"
+    filter_prefix       = "inventory_files/"  # Ajuste o prefixo para corresponder ao diretório no seu bucket S3
   }
 }
 
