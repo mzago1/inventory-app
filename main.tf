@@ -138,14 +138,15 @@ resource "aws_iam_policy" "lambda_execution_policy" {
   name   = "lambda_execution_policy"
   policy = jsonencode({
     "Version": "2012-10-17",
-    "Statement": [
+    Statement = [
       {
-        "Effect": "Allow",
-        "Action": [
+        Effect    = "Allow"
+          "Action": [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
           "dynamodb:UpdateItem",
           "s3:GetObject",
+          "dynamodb:Scan",
           "s3:ListBucket"  // Add permission to list the bucket
         ],
         "Resource": [
@@ -344,6 +345,14 @@ resource "aws_iam_role" "lambda_execution_role_sns" {
     Statement = [
       {
         Effect    = "Allow"
+          "Action": [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
+          "s3:GetObject",
+          "dynamodb:Scan",
+          "s3:ListBucket"  // Add permission to list the bucket
+        ],
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -436,9 +445,17 @@ resource "aws_iam_policy" "dynamodb_read_policy_restock" {
 
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
+    "Statement": [
       {
-        Effect   = "Allow",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
+          "s3:GetObject",
+          "dynamodb:Scan",
+          "s3:ListBucket"  // Add permission to list the bucket
+        ],
         Action   = "dynamodb:GetItem",
         Resource = aws_dynamodb_table.restock_table.arn
       }
@@ -460,10 +477,17 @@ resource "aws_iam_policy" "dynamodb_read_policy_inventory" {
 
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
+    "Statement": [
       {
-        Effect   = "Allow",
-        Action   = "dynamodb:GetItem",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem",
+          "s3:GetObject",
+          "dynamodb:Scan",
+          "s3:ListBucket"  // Add permission to list the bucket
+        ],
         Resource = aws_dynamodb_table.inventory_table.arn
       }
     ]
@@ -475,4 +499,28 @@ resource "aws_iam_policy_attachment" "lambda_dynamodb_read_attachment_inventory"
   name       = "LambdaDynamoDBReadAttachmentInventory"
   roles      = [aws_iam_role.lambda_execution_role_sns.name]
   policy_arn = aws_iam_policy.dynamodb_read_policy_inventory.arn
+}
+
+# Adiciona a política de permissão para permitir o acesso à tabela DynamoDB 'Inventory'
+resource "aws_iam_policy" "dynamodb_scan_policy_inventory" {
+  name        = "DynamoDBScanPolicyInventory"
+  description = "Policy to allow DynamoDB scan operation on the Inventory table"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect   = "Allow",
+        Action   = "dynamodb:Scan",
+        Resource = aws_dynamodb_table.inventory_table.arn
+      }
+    ]
+  })
+}
+
+# Anexa a política de permissão ao papel de execução IAM da função Lambda
+resource "aws_iam_policy_attachment" "lambda_dynamodb_scan_attachment_inventory" {
+  name       = "LambdaDynamoDBScanAttachmentInventory"
+  roles      = [aws_iam_role.lambda_execution_role_sns.name]
+  policy_arn = aws_iam_policy.dynamodb_scan_policy_inventory.arn
 }
