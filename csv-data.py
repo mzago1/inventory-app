@@ -1,15 +1,31 @@
 import boto3
 import csv
 from io import StringIO
-from decimal import Decimal
+import os
 
-# DynamoDB client configuration
+# AWS resource initialization
 dynamodb = boto3.resource('dynamodb', region_name='eu-central-1')
-table = dynamodb.Table('Inventory')
+sns_client = boto3.client('sns', region_name='eu-central-1')
+
+# Table names and SNS topic from environment variables
+inventory_table_name = 'Inventory'
+restock_table_name = 'Restock'
+sns_topic_arn = os.environ['SNS_TOPIC_ARN']
+
+# DynamoDB tables
+inventory_table = dynamodb.Table(inventory_table_name)
+restock_table = dynamodb.Table(restock_table_name)
 
 # Lambda function triggered by S3 event
 def insert_items_from_csv(event, context):
     try:
+        print("Received event:", event)
+        
+        # Check if 'Records' field exists in the event
+        if 'Records' not in event:
+            print("No 'Records' field found in the event.")
+            return
+        
         # Iterate over records in S3 event
         for record in event['Records']:
             # Extract information from S3 event record
@@ -32,7 +48,7 @@ def insert_items_from_csv(event, context):
                     stock_level_change = int(row['StockLevelChange'])
 
                     # Check if the item exists in the DynamoDB table
-                    response = table.get_item(
+                    response = inventory_table.get_item(
                         Key={'ItemId': item_id, 'WarehouseName': warehouse_name}
                     )
                     item_in_db = response.get('Item')
@@ -53,8 +69,25 @@ def insert_items_from_csv(event, context):
                         'ItemName': item_name,
                         'StockLevelChange': new_stock_level
                     }
-                    table.put_item(Item=item)
+                    inventory_table.put_item(Item=item)
                     print(f"Successfully inserted/updated: {item}")
+
+                    # Check if the item is below restock threshold
+                    restock_response = restock_table.get_item(Key={'ItemId': item_id})
+                    restock_item = restock_response.get('Item')
+                    if restock_item:
+                        restock_limit = restock_item.get('RestockIfBelow')
+                        if new_stock_level < restock_limit:
+                            # Item is below restock threshold, send notification
+                            message = (f"Item ID: {item_id}, Warehouse Name: {warehouse_name} "
+                                       f"has its current stock ({new_stock_level}) "
+                                       f"below the threshold limit ({restock_limit})")
+                            sns_client.publish(
+                                TopicArn=sns_topic_arn,
+                                Message=message,
+                                Subject="Stock Alert"
+                            )
+                            print("Notification sent successfully!")
 
                 except Exception as e:
                     print(f"Failed to process row: {str(e)}")
