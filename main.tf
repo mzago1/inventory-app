@@ -232,13 +232,14 @@ resource "aws_lambda_permission" "restock_bucket_permission" {
 resource "aws_lambda_function" "csv_data_handler" {
   function_name = "csv-data"
   filename      = "csv-data.zip"
-  handler       = "csv-data.insert_items_from_csv"  # Check if the handler name is correct
+  handler       = "csv-data.insert_items_from_csv"
   runtime       = "python3.8"
   role          = aws_iam_role.lambda_execution_role.arn
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.inventory_table.name
+      TABLE_NAME      = aws_dynamodb_table.inventory_table.name
+      SNS_TOPIC_ARN   = aws_sns_topic.restock_notifications.arn
     }
   }
 }
