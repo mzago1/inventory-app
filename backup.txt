@@ -1,0 +1,14 @@
+{
+  "Records": [
+    {
+      "s3": {
+        "bucket": {
+          "name": "unique-name-for-inventory-bucket-example"
+        },
+        "object": {
+          "key": "inventory_files/2024/05/01/202405010059_inventory.csv"
+        }
+      }
+    }
+  ]
+}
