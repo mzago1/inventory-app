@@ -133,6 +133,22 @@ resource "aws_iam_role" "lambda_execution_role" {
   })
 }
 
+# Define the Lambda function to process inventory files
+resource "aws_lambda_function" "inventory_handler" {
+  function_name = "inventory_handler"
+  filename      = "inventory_handler.zip"
+  handler       = "inventory_handler.handler"  # Update to the new handler name
+  runtime       = "python3.8"
+  role          = aws_iam_role.lambda_execution_role.arn
+
+   environment {
+    variables = {
+      TABLE_NAME      = aws_dynamodb_table.inventory_table.name
+      SNS_TOPIC_ARN   = aws_sns_topic.restock_notifications.arn
+    }
+  }
+}
+
 # Define the permission policy for Lambda functions
 resource "aws_iam_policy" "lambda_execution_policy" {
   name   = "lambda_execution_policy"
@@ -160,29 +176,17 @@ resource "aws_iam_policy" "lambda_execution_policy" {
   })
 }
 
+
+
 # Attach the permission policy to the IAM execution role
 resource "aws_iam_role_policy_attachment" "lambda_execution_attachment" {
   role       = aws_iam_role.lambda_execution_role.name
   policy_arn = aws_iam_policy.lambda_execution_policy.arn
 }
 
-# Define the Lambda function to process inventory files
-resource "aws_lambda_function" "inventory_handler" {
-  function_name = "inventory_handler"
-  filename      = "inventory_handler.zip"
-  handler       = "inventory_handler.handler"  # Update to the new handler name
-  runtime       = "python3.8"
-  role          = aws_iam_role.lambda_execution_role.arn
 
-  environment {
-    variables = {
-      TABLE_NAME = aws_dynamodb_table.inventory_table.name
-    }
-  }
-}
-
-# Configure the S3 event to trigger the Lambda function when a new file is created
-resource "aws_lambda_permission" "inventory_bucket_permission" {
+# Configure the S3 event to trigger the Lambda function when a new CSV file is created
+resource "aws_lambda_permission" "csv_data_bucket_permission" {
   statement_id  = "AllowExecutionFromS3"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.inventory_handler.arn
@@ -192,21 +196,30 @@ resource "aws_lambda_permission" "inventory_bucket_permission" {
   source_arn = aws_s3_bucket.inventory_files.arn
 }
 
-resource "aws_s3_bucket_notification" "inventory_bucket_notification" {
+resource "aws_s3_bucket_notification" "data_bucket_notifications" {
   bucket = aws_s3_bucket.inventory_files.id
 
   lambda_function {
     lambda_function_arn = aws_lambda_function.inventory_handler.arn
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "inventory_files/"
-  }
+    }
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.restock_handler.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "restock_thresholds/"  # Adjust the prefix to match the directory in your S3 bucket
+  }  
+
+  depends_on = [aws_s3_bucket.inventory_files, aws_lambda_function.json_loop_handler]
 }
+
 
 # Define the Lambda function to process restock thresholds files
 resource "aws_lambda_function" "restock_handler" {
-  function_name = "restock-handler"
-  filename      = "lambda-restock.zip"
-  handler       = "lambda-restock.lambda_handler"
+  function_name = "restock_handler"
+  filename      = "restock_handler.zip"
+  handler       = "restock_handler.lambda_handler"
   runtime       = "python3.8"
   role          = aws_iam_role.lambda_execution_role.arn
 
@@ -226,45 +239,6 @@ resource "aws_lambda_permission" "restock_bucket_permission" {
   
   # Define the conditions to trigger the Lambda function when a new object is created in the S3 bucket
   source_arn = aws_s3_bucket.inventory_files.arn
-}
-
-# Define the Lambda function to insert data into DynamoDB from CSV file
-resource "aws_lambda_function" "csv_data_handler" {
-  function_name = "csv-data"
-  filename      = "csv-data.zip"
-  handler       = "csv-data.insert_items_from_csv"
-  runtime       = "python3.8"
-  role          = aws_iam_role.lambda_execution_role.arn
-
-  environment {
-    variables = {
-      TABLE_NAME      = aws_dynamodb_table.inventory_table.name
-      SNS_TOPIC_ARN   = aws_sns_topic.restock_notifications.arn
-    }
-  }
-}
-
-
-# Configure the S3 event to trigger the Lambda function when a new CSV file is created
-resource "aws_lambda_permission" "csv_data_bucket_permission" {
-  statement_id  = "AllowExecutionFromS3"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.csv_data_handler.arn
-  principal     = "s3.amazonaws.com"
-  
-  # Define the conditions to trigger the Lambda function when a new object is created in the S3 bucket
-  source_arn = aws_s3_bucket.inventory_files.arn
-}
-
-# Configure the S3 event to trigger the Lambda function when a new CSV file is created
-resource "aws_s3_bucket_notification" "csv_data_bucket_notification" {
-  bucket = aws_s3_bucket.inventory_files.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.csv_data_handler.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "inventory_files/"  # Adjust the prefix to match the directory in your S3 bucket
-  }
 }
 
 # Define the Lambda function for processing CSV files with loop
@@ -314,17 +288,6 @@ resource "aws_lambda_permission" "json_data_bucket_permission" {
   source_arn = aws_s3_bucket.inventory_files.arn
 }
 
-#Configure the S3 event to trigger the Lambda function when a new JSON file is created
-resource "aws_s3_bucket_notification" "json_data_bucket_notification" {
-  bucket = aws_s3_bucket.inventory_files.id
-
-  lambda_function {
-    lambda_function_arn = aws_lambda_function.json_loop_handler.arn
-    events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "restock_thresholds/"  # Adjust the prefix to match the directory in your S3 bucket
-    filter_suffix       = ".json"  # Adjust the suffix to match the file type
-  }
-}
 
 # Creation of the SNS topic
 resource "aws_sns_topic" "restock_notifications" {
