@@ -226,6 +226,7 @@ resource "aws_lambda_function" "restock_handler" {
   environment {
     variables = {
       TABLE_NAME = aws_dynamodb_table.inventory_table.name
+      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn
     }
   }
 }
@@ -395,6 +396,30 @@ resource "aws_iam_policy" "dynamodb_scan_policy_restock" {
   })
 }
 
+##################################
+# Define IAM policy for DynamoDB BatchWriteItem operation on Restock table
+resource "aws_iam_policy" "dynamodb_batch_write_policy_restock" {
+  name        = "DynamoDBBatchWritePolicyRestock"
+  description = "Policy to allow DynamoDB BatchWriteItem operation on the Restock table"
+
+  policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [{
+      Effect   = "Allow",
+      Action   = "dynamodb:BatchWriteItem",
+      Resource = aws_dynamodb_table.restock_table.arn
+    }]
+  })
+}
+
+# Attach the IAM policy to the appropriate role
+resource "aws_iam_role_policy_attachment" "attach_dynamodb_batch_write_policy_restock" {
+  role       = aws_iam_role.lambda_execution_role.name  # Replace with the name of the role you want to attach the policy to
+  policy_arn = aws_iam_policy.dynamodb_batch_write_policy_restock.arn
+}
+
+##################################
+
 # Anexa a política de permissão ao papel de execução IAM da função Lambda
 resource "aws_iam_policy_attachment" "lambda_dynamodb_scan_attachment_restock" {
   name       = "LambdaDynamoDBScanAttachmentRestock"
@@ -487,4 +512,28 @@ resource "aws_iam_policy_attachment" "lambda_dynamodb_scan_attachment_inventory"
   name       = "LambdaDynamoDBScanAttachmentInventory"
   roles      = [aws_iam_role.lambda_execution_role_sns.name]
   policy_arn = aws_iam_policy.dynamodb_scan_policy_inventory.arn
+}
+
+###############
+resource "aws_iam_policy" "lambda_sns_policy_publish" {
+  name        = "LambdaSNSPolicyPublish"
+  description = "Policy to allow Lambda to publish messages to SNS"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect    = "Allow",
+        Action    = "sns:Publish",
+        Resource  = aws_sns_topic.restock_notifications.arn
+      }
+    ]
+  })
+}
+
+# Anexa a política de permissão ao papel de execução IAM da função Lambda
+resource "aws_iam_policy_attachment" "lambda_sns_policy_attachment_publish" {
+  name       = "LambdaSNSSendAttachment"
+  roles      = [aws_iam_role.lambda_execution_role_sns.name]
+  policy_arn = aws_iam_policy.lambda_sns_policy_publish.arn
 }
