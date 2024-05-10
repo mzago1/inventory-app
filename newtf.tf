@@ -5,6 +5,7 @@ provider "aws" {
 # Creation of the S3 bucket
 resource "aws_s3_bucket" "inventory_files" {
   bucket = "unique-name-for-inventory-bucket-example"  # Unique name for your S3 bucket
+  force_destroy = true
 }
 
 # Create the restock_lists folder in the S3 bucket
@@ -12,6 +13,7 @@ resource "aws_s3_object" "restock_lists_folder" {
   bucket = aws_s3_bucket.inventory_files.bucket
   key    = "restock_lists/"
   source = "/dev/null"  # Fictitious source to create an empty object
+  force_destroy = true
 }
 
 # Upload inventory files to the S3 bucket
