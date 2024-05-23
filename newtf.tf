@@ -147,6 +147,7 @@ resource "aws_lambda_function" "inventory_handler" {
     variables = {
       TABLE_NAME      = aws_dynamodb_table.inventory_table.name
       SNS_TOPIC_ARN   = aws_sns_topic.restock_notifications.arn
+      SQS_QUEUE_URL   = aws_sqs_queue.inventory_queue.url
     }
   }
 }
@@ -212,6 +213,8 @@ resource "aws_s3_bucket_notification" "data_bucket_notifications" {
     events              = ["s3:ObjectCreated:*"]
     filter_prefix       = "restock_thresholds/"  # Adjust the prefix to match the directory in your S3 bucket
   }  
+
+
 
   depends_on = [aws_s3_bucket.inventory_files, aws_lambda_function.json_loop_handler]
 }
@@ -538,4 +541,55 @@ resource "aws_iam_policy_attachment" "lambda_sns_policy_attachment_publish" {
   name       = "LambdaSNSSendAttachment"
   roles      = [aws_iam_role.lambda_execution_role_sns.name]
   policy_arn = aws_iam_policy.lambda_sns_policy_publish.arn
+}
+##########################
+##########################
+
+# Criação da fila SQS
+resource "aws_sqs_queue" "inventory_queue" {
+  name = "inventory_queue"
+}
+
+# Política IAM para envio de mensagens para a fila SQS
+resource "aws_iam_policy" "sqs_send_message_policy" {
+  name        = "SQSSendMessagePolicy"
+  description = "Policy to allow sending messages to SQS queues"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Effect    = "Allow",
+      Action    = [
+        "sqs:SendMessage",
+      ],
+      Resource  = aws_sqs_queue.inventory_queue.arn,
+    }],
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sqs_send_message_attachment" {
+  role       = aws_iam_role.lambda_execution_role.name
+  policy_arn = aws_iam_policy.sqs_send_message_policy.arn
+}
+
+
+resource "aws_sqs_queue_policy" "inventory_queue_policy" {
+  queue_url = aws_sqs_queue.inventory_queue.id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = "*",
+        Action = "sqs:SendMessage",
+        Resource = aws_sqs_queue.inventory_queue.arn,
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn": aws_s3_bucket.inventory_files.arn
+          }
+        }
+      }
+    ]
+  })
 }

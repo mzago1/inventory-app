@@ -10,6 +10,8 @@ ddb = boto3.resource('dynamodb')
 inventory_table = ddb.Table('Inventory')
 restock_table = ddb.Table('Restock')
 sns_client = boto3.client('sns', region_name='eu-central-1')
+sqs_client = boto3.client('sqs', region_name='eu-central-1')
+sqs_queue_url = os.environ['SQS_QUEUE_URL']
 
 def handler(event, context):
     try:
@@ -74,6 +76,14 @@ def handler(event, context):
 
                             except Exception as e:
                                 print(f"Failed to process row: {str(e)}")
+                        
+                        # Send CSV to SQS
+                        sqs_client.send_message(
+                            QueueUrl=sqs_queue_url,
+                            MessageBody=json.dumps({"bucket": bucket_name, "key": object_key, "content": csv_body})
+                        )
+                        print(f"CSV file {object_key} sent to SQS.")
+
                     else:
                         print(f"Skipping file {object_key}. Not an inventory update file.")
         
