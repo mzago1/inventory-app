@@ -593,3 +593,176 @@ resource "aws_sqs_queue_policy" "inventory_queue_policy" {
     ]
   })
 }
+############################
+
+
+
+# Create the IAM role for Step Functions
+resource "aws_iam_role" "step_function_role" {
+  name = "StepFunctionExecutionRole"
+
+  assume_role_policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": {
+          "Service": "states.eu-central-1.amazonaws.com"
+        },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+# Attach policies to the Step Function role
+resource "aws_iam_role_policy" "step_function_policy" {
+  name = "StepFunctionPolicy"
+  role = aws_iam_role.step_function_role.id
+
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": [
+          "lambda:InvokeFunction",
+          "lambda:InvokeAsync"
+        ],
+        "Resource": [
+          aws_lambda_function.sqs_consumer_lambda.arn
+        ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": "sqs:ReceiveMessage",
+        "Resource": aws_sqs_queue.inventory_queue.arn
+      }
+    ]
+  })
+}
+
+# Define the Lambda function to process SQS messages
+resource "aws_lambda_function" "sqs_consumer_lambda" {
+  function_name = "sqs-consumer-lambda"
+  filename      = "batch_operation.zip"
+  handler       = "batch_operation.lambda_handler"
+  runtime       = "python3.8"
+  role          = aws_iam_role.lambda_execution_role.arn
+
+  timeout       = 900  # Max allowed timeout is 15 minutes
+
+  environment {
+    variables = {
+      QUEUE_URL = aws_sqs_queue.inventory_queue.url
+    }
+  }
+}
+
+# Step Function definition
+data "aws_iam_policy_document" "step_function_policy" {
+  statement {
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_function.sqs_consumer_lambda.arn]
+    effect    = "Allow"
+  }
+}
+
+resource "aws_sfn_state_machine" "sqs_processor" {
+  name     = "SQSProcessor"
+  role_arn = aws_iam_role.step_function_role.arn
+  definition = jsonencode({
+    "Comment": "A description of my state machine",
+    "StartAt": "ProcessSQSMessage",
+    "States": {
+      "ProcessSQSMessage": {
+        "Type": "Task",
+        "Resource": aws_lambda_function.sqs_consumer_lambda.arn,
+        "Next": "WaitState",
+        "Retry": [
+          {
+            "ErrorEquals": ["States.ALL"],
+            "IntervalSeconds": 5,
+            "MaxAttempts": 3,
+            "BackoffRate": 2
+          }
+        ],
+        "Catch": [
+          {
+            "ErrorEquals": ["States.ALL"],
+            "Next": "FailState"
+          }
+        ]
+      },
+      "WaitState": {
+        "Type": "Wait",
+        "Seconds": 10,
+        "Next": "ProcessSQSMessage"
+      },
+      "FailState": {
+        "Type": "Fail",
+        "Error": "Failed to process SQS messages"
+      }
+    }
+  })
+}
+
+# Schedule to run Step Function daily at 3 AM UTC
+resource "aws_cloudwatch_event_rule" "daily_sqs_processor_trigger" {
+  name                = "DailySQSProcessorTrigger"
+  schedule_expression = "cron(0 3 * * ? *)"
+}
+
+resource "aws_cloudwatch_event_target" "sqs_processor_target" {
+  rule      = aws_cloudwatch_event_rule.daily_sqs_processor_trigger.name
+  target_id = "SQSProcessorStepFunction"
+  arn       = aws_sfn_state_machine.sqs_processor.arn
+  role_arn  = aws_iam_role.step_function_role.arn  # Added role_arn here
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_lambda" {
+  statement_id  = "AllowCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.sqs_consumer_lambda.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.daily_sqs_processor_trigger.arn
+}
+
+# Attach policy to allow Step Function to be triggered by CloudWatch
+resource "aws_iam_role_policy" "step_function_cloudwatch_policy" {
+  name = "StepFunctionCloudWatchPolicy"
+  role = aws_iam_role.step_function_role.id
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "states:StartExecution",
+        "Resource": aws_sfn_state_machine.sqs_processor.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "sqs_receive_message_policy" {
+  name        = "SQSReceiveMessagePolicy"
+  description = "Policy to allow receiving messages from SQS queue"
+
+  policy = jsonencode({
+    Version   = "2012-10-17",
+    Statement = [{
+      Effect   = "Allow",
+      "Action": ["sqs:ReceiveMessage",
+                 "sqs:DeleteMessage"],
+      Resource = aws_sqs_queue.inventory_queue.arn,
+    }],
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sqs_receive_message_attachment" {
+  role       = aws_iam_role.lambda_execution_role.name
+  policy_arn = aws_iam_policy.sqs_receive_message_policy.arn
+}
+
+
+
