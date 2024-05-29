@@ -157,23 +157,28 @@ resource "aws_iam_policy" "lambda_execution_policy" {
   name   = "lambda_execution_policy"
   policy = jsonencode({
     "Version": "2012-10-17",
-    Statement = [
+    "Statement": [
       {
-        Effect    = "Allow"
-          "Action": [
+        "Effect": "Allow",
+        "Action": [
           "dynamodb:PutItem",
           "dynamodb:GetItem",
           "dynamodb:UpdateItem",
           "s3:GetObject",
           "dynamodb:Scan",
-          "s3:ListBucket"  // Add permission to list the bucket
+          "s3:ListBucket"
         ],
         "Resource": [
           aws_dynamodb_table.inventory_table.arn,
           aws_dynamodb_table.restock_table.arn,
           "${aws_s3_bucket.inventory_files.arn}/*",
-          "${aws_s3_bucket.inventory_files.arn}"  // Add permission for the bucket itself
+          "${aws_s3_bucket.inventory_files.arn}"
         ]
+      },
+      {
+        "Effect": "Allow",
+        "Action": "sns:Publish",
+        "Resource": aws_sns_topic.restock_notifications.arn
       }
     ]
   })
@@ -643,6 +648,7 @@ resource "aws_iam_role_policy" "step_function_policy" {
 }
 
 # Define the Lambda function to process SQS messages
+# Define the Lambda function to process SQS messages
 resource "aws_lambda_function" "sqs_consumer_lambda" {
   function_name = "sqs-consumer-lambda"
   filename      = "batch_operation.zip"
@@ -654,7 +660,8 @@ resource "aws_lambda_function" "sqs_consumer_lambda" {
 
   environment {
     variables = {
-      QUEUE_URL = aws_sqs_queue.inventory_queue.url
+      SQS_QUEUE_URL = aws_sqs_queue.inventory_queue.url,
+      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn # Replace `your_topic` with your SNS topic name
     }
   }
 }
