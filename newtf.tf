@@ -648,7 +648,6 @@ resource "aws_iam_role_policy" "step_function_policy" {
 }
 
 # Define the Lambda function to process SQS messages
-# Define the Lambda function to process SQS messages
 resource "aws_lambda_function" "sqs_consumer_lambda" {
   function_name = "sqs-consumer-lambda"
   filename      = "batch_operation.zip"
