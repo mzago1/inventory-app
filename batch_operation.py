@@ -5,6 +5,7 @@ import os
 
 sqs = boto3.client('sqs')
 s3 = boto3.client('s3')
+sns = boto3.client('sns')
 
 def check_transaction(transaction):
     """Long and complex check for each transaction"""
@@ -20,8 +21,12 @@ def process_file(bucket, key):
             check_transaction(transaction)
 
 def lambda_handler(event, context):
-    QUEUE_URL = os.environ['QUEUE_URL']
+    QUEUE_URL = os.environ.get('QUEUE_URL')
+    SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN')  # Get the SNS topic ARN from environment variables
 
+    if not SNS_TOPIC_ARN:
+        raise ValueError("SNS_TOPIC_ARN environment variable is not set")
+    
     response = sqs.receive_message(
         QueueUrl=QUEUE_URL,
         MaxNumberOfMessages=1,
@@ -29,10 +34,17 @@ def lambda_handler(event, context):
     )
 
     if 'Messages' not in response:
+        # Send SNS notification if no messages are left in the queue
+        sns.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Message="The Step Function execution has succeeded. No messages left in the SQS queue.",
+            Subject="Step Function Execution Succeeded"
+        )
+        
         return {
             'statusCode': 200,
-            'body': json.dumps('No messages to process'),
-            'queueUrl': QUEUE_URL
+            'body': 'No messages to process',
+            'queueEmpty': True
         }
 
     for message in response['Messages']:
@@ -49,6 +61,6 @@ def lambda_handler(event, context):
 
     return {
         'statusCode': 200,
-        'body': json.dumps('Message processed successfully'),
-        'queueUrl': QUEUE_URL
+        'body': 'Message processed successfully',
+        'queueEmpty': False
     }

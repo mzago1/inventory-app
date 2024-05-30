@@ -645,6 +645,7 @@ resource "aws_iam_role_policy" "step_function_policy" {
   })
 }
 
+
 # Define the Lambda function to process SQS messages
 resource "aws_lambda_function" "sqs_consumer_lambda" {
   function_name = "sqs-consumer-lambda"
@@ -657,7 +658,8 @@ resource "aws_lambda_function" "sqs_consumer_lambda" {
 
   environment {
     variables = {
-      QUEUE_URL = aws_sqs_queue.inventory_queue.url
+      QUEUE_URL     = aws_sqs_queue.inventory_queue.url
+      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn
     }
   }
 }
