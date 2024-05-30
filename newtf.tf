@@ -721,27 +721,21 @@ resource "aws_sfn_state_machine" "sqs_processor" {
   })
 }
 
-
-# Schedule to run Step Function daily at 3 AM UTC
-resource "aws_cloudwatch_event_rule" "daily_sqs_processor_trigger" {
-  name                = "DailySQSProcessorTrigger"
-  schedule_expression = "cron(0 3 * * ? *)"
+# Create a CloudWatch Event rule to trigger the Step Function
+resource "aws_cloudwatch_event_rule" "step_function_trigger" {
+  name                = "StepFunctionTriggerRule"
+  description         = "Trigger Step Function at 3 AM UTC"
+  schedule_expression = "cron(0 1 * * ? *)"  # Schedule for 3 AM GMT+2
 }
 
-resource "aws_cloudwatch_event_target" "sqs_processor_target" {
-  rule      = aws_cloudwatch_event_rule.daily_sqs_processor_trigger.name
-  target_id = "SQSProcessorStepFunction"
-  arn       = aws_sfn_state_machine.sqs_processor.arn
-  role_arn  = aws_iam_role.step_function_role.arn  # Added role_arn here
+# Add a target for the CloudWatch Event rule to trigger the Step Function
+resource "aws_cloudwatch_event_target" "step_function_target" {
+  rule        = aws_cloudwatch_event_rule.step_function_trigger.name
+  target_id   = "StepFunctionTarget"
+  arn         = aws_sfn_state_machine.sqs_processor.arn  # ARN of your Step Function
+  role_arn    = aws_iam_role.step_function_role.arn 
 }
 
-resource "aws_lambda_permission" "allow_cloudwatch_to_invoke_lambda" {
-  statement_id  = "AllowCloudWatch"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.sqs_consumer_lambda.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.daily_sqs_processor_trigger.arn
-}
 
 # Attach policy to allow Step Function to be triggered by CloudWatch
 resource "aws_iam_role_policy" "step_function_cloudwatch_policy" {
