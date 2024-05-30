@@ -600,8 +600,6 @@ resource "aws_sqs_queue_policy" "inventory_queue_policy" {
 }
 ############################
 
-
-
 # Create the IAM role for Step Functions
 resource "aws_iam_role" "step_function_role" {
   name = "StepFunctionExecutionRole"
@@ -659,11 +657,11 @@ resource "aws_lambda_function" "sqs_consumer_lambda" {
 
   environment {
     variables = {
-      SQS_QUEUE_URL = aws_sqs_queue.inventory_queue.url,
-      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn # Replace `your_topic` with your SNS topic name
+      QUEUE_URL = aws_sqs_queue.inventory_queue.url
     }
   }
 }
+
 
 # Step Function definition
 data "aws_iam_policy_document" "step_function_policy" {
@@ -673,7 +671,6 @@ data "aws_iam_policy_document" "step_function_policy" {
     effect    = "Allow"
   }
 }
-
 resource "aws_sfn_state_machine" "sqs_processor" {
   name     = "SQSProcessor"
   role_arn = aws_iam_role.step_function_role.arn
@@ -684,7 +681,7 @@ resource "aws_sfn_state_machine" "sqs_processor" {
       "ProcessSQSMessage": {
         "Type": "Task",
         "Resource": aws_lambda_function.sqs_consumer_lambda.arn,
-        "Next": "WaitState",
+        "Next": "CheckIfMoreMessages",
         "Retry": [
           {
             "ErrorEquals": ["States.ALL"],
@@ -700,10 +697,19 @@ resource "aws_sfn_state_machine" "sqs_processor" {
           }
         ]
       },
-      "WaitState": {
-        "Type": "Wait",
-        "Seconds": 10,
-        "Next": "ProcessSQSMessage"
+      "CheckIfMoreMessages": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.queueEmpty",
+            "BooleanEquals": true,
+            "Next": "StopExecution"
+          }
+        ],
+        "Default": "ProcessSQSMessage"
+      },
+      "StopExecution": {
+        "Type": "Succeed"
       },
       "FailState": {
         "Type": "Fail",
@@ -712,6 +718,7 @@ resource "aws_sfn_state_machine" "sqs_processor" {
     }
   })
 }
+
 
 # Schedule to run Step Function daily at 3 AM UTC
 resource "aws_cloudwatch_event_rule" "daily_sqs_processor_trigger" {
@@ -769,6 +776,5 @@ resource "aws_iam_role_policy_attachment" "lambda_sqs_receive_message_attachment
   role       = aws_iam_role.lambda_execution_role.name
   policy_arn = aws_iam_policy.sqs_receive_message_policy.arn
 }
-
 
 
