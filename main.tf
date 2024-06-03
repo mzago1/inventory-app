@@ -8,28 +8,27 @@ resource "aws_s3_bucket" "inventory_files" {
   force_destroy = true
 }
 
-# Create the restock_lists folder in the S3 bucket
-resource "aws_s3_object" "restock_lists_folder" {
-  bucket = aws_s3_bucket.inventory_files.bucket
-  key    = "restock_lists/"
-  source = "/dev/null"  # Fictitious source to create an empty object
-  force_destroy = true
+# Subscription of the topic for your email
+resource "aws_sns_topic_subscription" "email_subscription" {
+  topic_arn = aws_sns_topic.restock_notifications.arn
+  protocol  = "email"
+  endpoint  = "mjzagobooks@gmail.com" # Change this for your email - you have to confirm your subscription after running the Terraform Apply
 }
 
 # Upload inventory files to the S3 bucket
 resource "aws_s3_object" "inventory_files" {
-  for_each = fileset(path.module, "inventory_files/**/*")  # Get the list of files in the "inventory_files" directory
-  bucket   = aws_s3_bucket.inventory_files.bucket  # Reference to the ID of the created S3 bucket
-  key      = each.value  # Set the object key as the local file name
-  source   = each.value  # Set the source as the local file name
+  for_each = fileset(path.module, "inventory_files/**/*")  
+  bucket   = aws_s3_bucket.inventory_files.bucket  
+  key      = each.value  
+  source   = each.value  
 }
 
 # Upload restock thresholds to the S3 bucket
 resource "aws_s3_object" "restock_thresholds" {
-  for_each = fileset(path.module, "restock_thresholds/**/*")  # Get the list of files in the "restock_thresholds" directory
-  bucket   = aws_s3_bucket.inventory_files.bucket  # Reference to the ID of the created S3 bucket
-  key      = each.value  # Set the object key as the local file name
-  source   = each.value  # Set the source as the local file name
+  for_each = fileset(path.module, "restock_thresholds/**/*") 
+  bucket   = aws_s3_bucket.inventory_files.bucket 
+  key      = each.value 
+  source   = each.value  
 }
 
 # Define the DynamoDB table to store the inventory
@@ -38,7 +37,7 @@ resource "aws_dynamodb_table" "inventory_table" {
   billing_mode   = "PAY_PER_REQUEST"
   
   hash_key       = "ItemId"
-  range_key      = "WarehouseName"  # Adding WarehouseName as the range key
+  range_key      = "WarehouseName"  
 
   attribute {
     name = "ItemId"
@@ -139,7 +138,7 @@ resource "aws_iam_role" "lambda_execution_role" {
 resource "aws_lambda_function" "inventory_handler" {
   function_name = "inventory_handler"
   filename      = "inventory_handler.zip"
-  handler       = "inventory_handler.handler"  # Update to the new handler name
+  handler       = "inventory_handler.handler"  
   runtime       = "python3.8"
   role          = aws_iam_role.lambda_execution_role.arn
 
@@ -216,7 +215,7 @@ resource "aws_s3_bucket_notification" "data_bucket_notifications" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.restock_handler.arn
     events              = ["s3:ObjectCreated:*"]
-    filter_prefix       = "restock_thresholds/"  # Adjust the prefix to match the directory in your S3 bucket
+    filter_prefix       = "restock_thresholds/" 
   }  
 
 
@@ -256,7 +255,7 @@ resource "aws_lambda_permission" "restock_bucket_permission" {
 resource "aws_lambda_function" "csv_loop_handler" {
   function_name = "csv-loop"
   filename      = "csv-loop.zip"
-  handler       = "csv-loop.insert_items_from_csv"  # Make sure this handler matches your actual function handler
+  handler       = "csv-loop.insert_items_from_csv"  
   runtime       = "python3.8"
   role          = aws_iam_role.lambda_execution_role.arn
 
@@ -280,7 +279,7 @@ resource "aws_lambda_function" "json_loop_handler" {
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.restock_table.name  # Updated for the Restock table
+      TABLE_NAME = aws_dynamodb_table.restock_table.name  
     }
   }
 
@@ -305,13 +304,6 @@ resource "aws_sns_topic" "restock_notifications" {
   name = "restock_notifications_topic"
 }
 
-# Subscription of the topic for your email
-resource "aws_sns_topic_subscription" "email_subscription" {
-  topic_arn = aws_sns_topic.restock_notifications.arn
-  protocol  = "email"
-  endpoint  = "mjzagobooks@gmail.com"
-}
-
 # Creation of the IAM role for Lambda related to SNS
 resource "aws_iam_role" "lambda_execution_role_sns" {
   name               = "lambda_execution_role_sns"
@@ -326,7 +318,7 @@ resource "aws_iam_role" "lambda_execution_role_sns" {
           "dynamodb:UpdateItem",
           "s3:GetObject",
           "dynamodb:Scan",
-          "s3:ListBucket"  // Add permission to list the bucket
+          "s3:ListBucket"  
         ],
         Principal = {
           Service = "lambda.amazonaws.com"
@@ -379,7 +371,7 @@ resource "aws_lambda_function" "restock_checker" {
 
   environment {
     variables = {
-      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn  # Pass the SNS topic ARN as an environment variable
+      SNS_TOPIC_ARN = aws_sns_topic.restock_notifications.arn 
     }
   }
 
@@ -406,7 +398,6 @@ resource "aws_iam_policy" "dynamodb_scan_policy_restock" {
   })
 }
 
-##################################
 # Define IAM policy for DynamoDB BatchWriteItem operation on Restock table
 resource "aws_iam_policy" "dynamodb_batch_write_policy_restock" {
   name        = "DynamoDBBatchWritePolicyRestock"
@@ -424,11 +415,9 @@ resource "aws_iam_policy" "dynamodb_batch_write_policy_restock" {
 
 # Attach the IAM policy to the appropriate role
 resource "aws_iam_role_policy_attachment" "attach_dynamodb_batch_write_policy_restock" {
-  role       = aws_iam_role.lambda_execution_role.name  # Replace with the name of the role you want to attach the policy to
+  role       = aws_iam_role.lambda_execution_role.name 
   policy_arn = aws_iam_policy.dynamodb_batch_write_policy_restock.arn
 }
-
-##################################
 
 # Anexa a política de permissão ao papel de execução IAM da função Lambda
 resource "aws_iam_policy_attachment" "lambda_dynamodb_scan_attachment_restock" {
@@ -453,7 +442,7 @@ resource "aws_iam_policy" "dynamodb_read_policy_restock" {
           "dynamodb:UpdateItem",
           "s3:GetObject",
           "dynamodb:Scan",
-          "s3:ListBucket"  // Add permission to list the bucket
+          "s3:ListBucket"  
         ],
         Action   = "dynamodb:GetItem",
         Resource = aws_dynamodb_table.restock_table.arn
@@ -485,7 +474,7 @@ resource "aws_iam_policy" "dynamodb_read_policy_inventory" {
           "dynamodb:UpdateItem",
           "s3:GetObject",
           "dynamodb:Scan",
-          "s3:ListBucket"  // Add permission to list the bucket
+          "s3:ListBucket"  
         ],
         Resource = aws_dynamodb_table.inventory_table.arn
       }
@@ -547,8 +536,6 @@ resource "aws_iam_policy_attachment" "lambda_sns_policy_attachment_publish" {
   roles      = [aws_iam_role.lambda_execution_role_sns.name]
   policy_arn = aws_iam_policy.lambda_sns_policy_publish.arn
 }
-##########################
-##########################
 
 # Criação da fila SQS
 resource "aws_sqs_queue" "inventory_queue" {
@@ -598,7 +585,6 @@ resource "aws_sqs_queue_policy" "inventory_queue_policy" {
     ]
   })
 }
-############################
 
 # Create the IAM role for Step Functions
 resource "aws_iam_role" "step_function_role" {
@@ -663,7 +649,6 @@ resource "aws_lambda_function" "sqs_consumer_lambda" {
     }
   }
 }
-
 
 # Step Function definition
 data "aws_iam_policy_document" "step_function_policy" {
@@ -732,7 +717,7 @@ resource "aws_cloudwatch_event_rule" "step_function_trigger" {
 resource "aws_cloudwatch_event_target" "step_function_target" {
   rule        = aws_cloudwatch_event_rule.step_function_trigger.name
   target_id   = "StepFunctionTarget"
-  arn         = aws_sfn_state_machine.sqs_processor.arn  # ARN of your Step Function
+  arn         = aws_sfn_state_machine.sqs_processor.arn  
   role_arn    = aws_iam_role.step_function_role.arn 
 }
 
